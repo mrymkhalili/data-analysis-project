@@ -1,0 +1,480 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sat May  8 22:29:18 2021
+
+@author: maryami
+"""
+
+# intro to data science big data analysis project
+# Maryam Khalili - mk6323
+
+
+import numpy as np
+import pandas as pd
+from scipy import stats
+import matplotlib.pyplot as plt
+from sklearn import linear_model
+from sklearn.decomposition import PCA
+from sklearn.metrics import mean_squared_error, r2_score
+import statsmodels.api as sm
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_samples
+from sklearn import svm
+from sklearn.tree import DecisionTreeClassifier
+from sklearn import linear_model
+import matplotlib.pyplot as plt
+
+
+
+
+data = pd.read_csv('middleSchoolData.csv', skiprows = 0)
+# data = data.drop(['dbn', 'school_name'], axis = 1)
+data = data[np.isfinite(data)]
+
+
+#%% 1) What is the correlation between the number of applications and admissions to HSPHS?
+cleaned1 = data["applications"]
+cleaned1 = cleaned1[np.isfinite(cleaned1)]
+
+cleaned2 = data["acceptances"]
+cleaned2 = cleaned2[np.isfinite(cleaned2)]
+
+# cleaned3 = data["school_size"]
+# cleaned3 = cleaned3[np.isfinite(cleaned3)]
+
+# data["school_size"] = data["school_size"][np.isfinite(data["school_size"])]
+
+
+correlation = cleaned1.corr(cleaned2)
+print("correlation between the number of applications and admissions to HSPHS: ", correlation)
+
+
+
+
+
+# plotting the data
+plt.scatter(cleaned1, cleaned2, color='blue')
+plt.xlabel("Number of Applications")
+plt.ylabel("Number of Acceptances")
+plt.plot(np.unique(cleaned1), np.poly1d(np.polyfit(cleaned1, cleaned2, 1))
+         (np.unique(cleaned1)), color='red')
+
+#%% 2) What is a better predictor of admission to HSPHS? Raw number of applications or application *rate*?
+
+# intuitively rate is a better predictor but after comparing the regression model we see
+# that the number of application is a better predictor since it has a bigger r^2 and smaller
+# std_err. I don't know how, it doesn't make sense to me either.
+
+a = data['applications']
+b = data['school_size']
+mask0 = ~np.isnan(a) & ~np.isnan(b)
+arr0 = np.stack((a, b))
+
+app_rate = np.array([])
+for i in range(len(data)):
+    # apps/school_size
+    rate = arr0[0][i] / arr0[1][i]
+    app_rate = np.append(app_rate, rate)
+
+
+    
+# regression between acceptances and number of applications
+x = data['applications']
+y = data['acceptances']
+mask = ~np.isnan(x) & ~np.isnan(y)
+
+
+model = sm.OLS(y[mask], x[mask]).fit()
+predictions = model.predict(x[mask]) # make the predictions by the model
+
+# Print out the statistics
+print('')
+print("regression between acceptances and number of applications: ")
+print('')
+print(model.summary())
+print('')
+print('')
+print('')
+print('')
+print('')
+
+# regression between acceptances and application rate
+x1 = app_rate
+y1 = data['acceptances']
+mask1 = ~np.isnan(x1) & ~np.isnan(y1)
+
+
+model1 = sm.OLS(y1[mask1], x1[mask1]).fit()
+predictions = model.predict(x1[mask1]) # make the predictions by the model
+
+# Print out the statistics
+print('')
+print("regression between acceptances and application rate: ")
+print('')
+
+print(model1.summary())
+
+
+
+#%% 3) Which school has the best *per student* odds of sending someone to HSPHS?
+
+
+arr1 = np.stack((y1, b))
+
+# acceptances/school size
+array = np.array([])
+for i in range(len(data)):
+    rate = arr1[0][i] / arr1[1][i]
+    array = np.append(array, rate)
+    # print("the *per student* odds for school {} is: ".format(i), rate)
+best_rate= max(array)
+index = np.where(array == best_rate)
+print("school {} the best *per student* odds of sending someone to HSPHS with a rate of: ".format(index), best_rate)
+
+
+#%% 4) Is there a relationship between how students perceive their school (as reported in columns
+# L-Q) and how the school performs on objective measures of achievement (as noted in
+# columns V-X).
+# ===========================================
+# L-Q: Average rating of “school climate” factors as perceived by the students, e.g. trust
+
+# V: Average student achievement on a state-wide standardized test
+# W-X: Proportion of students exceeding state-wide expectations in reading and math
+
+# separating and putting data in new columns
+
+predictors = data.iloc[:,11:17] # L to Q 
+outcomes = data.iloc[:,21:24] # V, W and X
+
+joined = pd.concat([predictors, outcomes], axis =1) # concatenate student perception and achievement columns 
+joined = joined.dropna() # get rid of nan values
+
+predictors = joined.iloc[:,0:6] # first six columns represent student perception 
+outcomes = joined.iloc[:,6:9] # next three columns represent achievement
+
+
+#%% doing the pca for the school features
+
+r = np.corrcoef(predictors, rowvar = False)
+plt.imshow(r)
+plt.colorbar()
+
+zscoredData = stats.zscore(predictors)
+pca = PCA()
+pca.fit(zscoredData)
+
+eigValues = pca.explained_variance_
+loadings = pca.components_
+origDataNewCoordinates = pca.fit_transform(zscoredData)
+covar_explained = eigValues/sum(eigValues)*100
+print(eigValues)
+
+plt.figure()
+numPredictors = 6
+plt.bar(np.linspace(1,numPredictors,numPredictors), eigValues)
+plt.title('Scree plot')
+plt.xlabel("Principal component")
+plt.ylabel("Eigenvalue")
+plt.plot([1,numPredictors],[1,1], color = 'orange', linewidth = 1)
+
+which_principal_component = 0
+plt.figure()
+plt.bar(np.linspace(1,numPredictors,numPredictors), loadings[:,which_principal_component])
+plt.xlabel('Question')
+plt.ylabel('Loading')
+
+x = origDataNewCoordinates[:,0]
+
+#%% doing the pca for the student outcomes
+
+
+# r = np.corrcoef(outcomes, rowvar = False)
+# plt.imshow(r)
+# plt.colorbar()
+
+zscoredData = stats.zscore(outcomes)
+pca = PCA()
+pca.fit(zscoredData)
+
+eigValues = pca.explained_variance_
+loadings = pca.components_
+origDataNewCoordinates = pca.fit_transform(zscoredData)
+covar_explained = eigValues/sum(eigValues)*100
+
+plt.figure()
+numPredictors = 3
+plt.bar(np.linspace(1,numPredictors,numPredictors), eigValues)
+plt.title('Scree plot')
+plt.xlabel('Principal component')
+plt.ylabel('Eigenvalue')
+plt.plot([1,3], [1,1], color = 'orange', linewidth =1 )
+
+which_principal_component = 0
+plt.figure()
+plt.bar(np.linspace(1,numPredictors,numPredictors), loadings[:,which_principal_component])
+plt.xlabel('Question')
+plt.ylabel('Loading')
+plt.figure()
+
+y_stud = origDataNewCoordinates[:,0]
+# print(y_stud)
+
+#%% correlation 
+
+
+r = np.corrcoef(x,y)
+print(r[0][1])
+plt.scatter(x,y)
+
+plt.plot(x,r[0,1]*x, color = 'blue')
+plt.xlabel('how students perceive their school')
+plt.ylabel('student success')
+plt.figure()
+
+#%% 5) Test a hypothesis of your choice as to which kind of school (e.g. small schools vs.
+# large schools or charter schools vs. not (or any other classification, such as rich vs. 
+# poor school)) performs differently than another kind either on some dependent measure, 
+# e.g. objective measures of achievement or admission to HSPHS (pick one).
+
+
+
+# public school vs charter school and admission to hsphs
+# null hypothesis is that there is no correlation - but we get a p-value of 0.001
+# ofc this is not a good measure because school size and number of application is much 
+# bigger for public schools than charter school
+# i chose t test because it tells you how significant the differences are and whether
+# those differences could have happened by chance
+
+
+public = data[0:485]
+charter = data[486:594]
+
+# print(public)
+# print(charter)
+
+# public = public[np.isfinite(public)]
+# charter = charter[np.isfinite(charter)]
+
+public_acceptances = public["acceptances"]
+charter_acceptances = charter["acceptances"]
+
+# print(public_acceptances)
+
+test = stats.ttest_ind(public_acceptances,charter_acceptances)
+print(test)
+
+#%% 6) Is there any evidence that the availability of material resources (e.g. per student spending
+# or class size) impacts objective measures of achievement or admission to HSPHS?
+
+# correlation
+
+joined = pd.concat([data["per_pupil_spending"], data["avg_class_size"], data["acceptances"], 
+                    data["student_achievement"]], axis =1)
+
+joined = joined.dropna()
+
+spending = joined.iloc[:, 0]
+size = joined.iloc[:, 1]
+
+accep = joined.iloc[:, 2]
+student = joined.iloc[:, 3]
+
+
+r1 = np.corrcoef(joined["per_pupil_spending"], joined["acceptances"])
+print(r1[1][0])
+
+# plotting the data
+plt.scatter(spending, accep, color='blue')
+plt.xlabel("per pupil spending")
+plt.ylabel("number of acceptances")
+plt.plot(np.unique(spending), np.poly1d(np.polyfit(spending, accep, 1))
+         (np.unique(spending)), color='red')
+#%%
+
+r2 = np.corrcoef(joined["per_pupil_spending"], joined["student_achievement"])
+print(r2[1][0])
+
+plt.scatter(spending, student, color='blue')
+plt.xlabel("per pupil spending")
+plt.ylabel("student achievement")
+plt.plot(np.unique(spending), np.poly1d(np.polyfit(spending, student, 1))
+         (np.unique(spending)), color='red')
+
+#%%
+
+r3 = np.corrcoef(joined["avg_class_size"], joined["acceptances"])
+print(r3[1][0])
+
+plt.scatter(size, accep, color='blue')
+plt.xlabel("average class size")
+plt.ylabel("number of acceptances")
+plt.plot(np.unique(size), np.poly1d(np.polyfit(size, accep, 1))
+         (np.unique(size)), color='red')
+
+#%%
+
+r4 = np.corrcoef(joined["avg_class_size"], joined["student_achievement"])
+print(r4[1][0])
+
+
+plt.scatter(size, student, color='blue')
+plt.xlabel("average class size")
+plt.ylabel("student achievement")
+plt.plot(np.unique(size), np.poly1d(np.polyfit(size, student, 1))
+         (np.unique(size)), color='red')
+
+#%% 7) What proportion of schools accounts for 90% of all students accepted to HSPHS? 
+
+# is the confidence interval?
+
+# sorting the aceeptances column (ascending order)
+sorted_acceptances = data["acceptances"].sort_values()
+
+number_of_acceptances = 0
+for i in range(len(sorted_acceptances)):
+    number_of_acceptances += sorted_acceptances[i]
+    
+# print(number_of_acceptances)
+
+# if 100% proportion of the school accounts for 100% number_of_acceptances (4461)
+# what proportion of schools account for 90% of the acceptances (4015)
+
+# my logic: total number of acceptances is 4461. 90% of this population is 4015. how many
+# schools contribute to this number? 407 schools
+
+
+# going through the sorted array in reverse. adding to the counter until it's at 4015 or smaller. 
+# we note the index at which our counter reaches this threshhold
+count = 0
+for i in reversed(sorted_acceptances):
+    while count <= 4015:
+        count += sorted_acceptances[i]
+        i += 1
+        # print(i)
+
+        # 453 schools (0 to 452) account for 90% of the acceptances
+
+        
+print(count)
+
+# so schools 0 to 452 accounts for 90% of the students accepted to high schools
+
+
+#%% bar chart
+
+# we make a dictionary with all the schools and their acceptance #, sort them based on their
+# value, keep the values from index 0 to 407 and then plot them
+
+
+schools = data["school_name"]
+acceptances = data["acceptances"]
+
+d = {}
+for A, B in zip(schools, acceptances):
+    d[A] = B
+    
+d = sorted([(v, k) for k, v in d.items()], reverse=True)
+
+# wait there are actually 407? idk
+ninety_percent = d[:407]
+# print(ninety_percent)
+
+schools = np.array([])
+acceptances = np.array([])
+
+for i in range(len(ninety_percent)):
+    schools = np.append(schools, ninety_percent[i][1])
+    acceptances = np.append(acceptances, ninety_percent[i][0])
+
+
+
+y_pos = np.arange(len(schools))
+plt.bar(y_pos, acceptances, align='center', alpha=0.5, color="blue")
+plt.xticks(y_pos, schools)
+plt.xticks(color='w')
+plt.ylabel('number of acceptances')
+plt.title('schools')
+
+plt.show()
+
+# 453 schools shown in the bar chart account for 90% of the acceptances
+
+#%% 8) Build a model of your choice – clustering, classification or prediction – that includes all
+# factors – as to what school characteristics are most important in terms of a) sending
+# students to HSPHS, b) achieving high scores on objective measures of achievement?
+
+# multiple regression????
+
+# part 1: sending students to HSPHS or acceptances
+
+# SEE IF YOU NEED TO DO DIMENSION REDUCTION before proceeding to regression?
+# or justify why you didnt do PCA. you simply wanted to include 'all factors' 
+# as per request of the question. whatever you do make a solud argument and back
+# up your choices with good reasoning.
+
+
+x = data.iloc[:,11:17] # L to Q 
+y = data.iloc[:,3] # acceptances
+
+joined = pd.concat([x, y], axis =1) 
+joined = joined.dropna()
+
+x = joined.iloc[:,0:6] # first six columns represent student perception 
+y = joined.iloc[:,6:7]
+
+model = sm.OLS(y, x).fit()
+predictions = model.predict(x) # make the predictions by the model
+print("")
+print(model.summary())
+
+#%%
+
+x = data.iloc[:,11:17] # L to Q 
+y = data.iloc[:,21:24] # V, W and X - objective measures of achievement
+
+
+joined = pd.concat([x, y], axis =1) 
+joined = joined.dropna()
+
+x = joined.iloc[:,0:6] # first six columns represent student perception 
+y = joined.iloc[:,6:9]
+
+
+# y_stud is objective measures of achievement after pca 
+model = sm.OLS(y_stud, x).fit()
+predictions = model.predict(x) # make the predictions by the model
+print("")
+print(model.summary())
+
+
+
+
+# plot some figures to help analyze the model
+# include a link to your code at the end of the document?
+
+
+#%% Write an overall summary of your findings – what school characteristics seem to be most
+# relevant in determining acceptance of their students to HSPHS?
+
+
+
+# maybe in the analysis show that https://www.w3schools.com/python/python_ml_multiple_regression.asp
+# if the number of applications increase the number of acceptances will, too. and stuff like that.:
+# show on a graph
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
